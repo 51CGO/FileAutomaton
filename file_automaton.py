@@ -1,6 +1,6 @@
 #!/usr/bin/env python3.5
 
-import argparse
+import abc
 import logging
 import os
 import os.path
@@ -9,34 +9,34 @@ import tempfile
 import traceback
 
 
-class FileAutomaton(object):
+class FileAutomaton(object, metaclass=abc.ABCMeta):
 
-    def __init__(self, fct,
-                 dir_input, dir_output, dir_error, dir_archive,
+    def __init__(self,
+                 dir_input, dir_output, dir_valid, dir_invalid,
                  dir_temporary="/tmp"):
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
-        self.fct = fct
-
+        # Initialize directories
         self.dir_input = dir_input
         self.dir_output = dir_output
-        self.dir_error = dir_error
-        self.dir_archive = dir_archive
+        self.dir_valid = dir_valid
+        self.dir_invalid = dir_invalid
         self.dir_tmp_root = dir_temporary
 
         self.logger.info("Input directory: %s" % self.dir_input)
-        self.logger.info("Onput directory: %s" % self.dir_output)
-        self.logger.info("Error directory: %s" % self.dir_error)
-        self.logger.info("Archive directory: %s" % self.dir_archive)
+        self.logger.info("Output directory: %s" % self.dir_output)
+        self.logger.info("Invalid files directory: %s" % self.dir_valid)
+        self.logger.info("Valid files directory: %s" % self.dir_invalid)
         self.logger.info("Temporary directory: %s" % self.dir_tmp_root)
 
         if not os.path.exists(self.dir_input):
             raise RuntimeError(
                 "Input directory %s does not exist" % self.dir_input)
 
+        # Create missing directories
         for directory in [self.dir_output, self.dir_tmp_root,
-                          self.dir_error, self.dir_archive]:
+                          self.dir_valid, self.dir_invalid]:
 
             if os.path.exists(directory):
                 continue
@@ -51,28 +51,37 @@ class FileAutomaton(object):
         self.dir_tmp_run_out = None
 
     def next(self):
+        """Return a list of files to be processed"""
 
         for one_file in os.listdir(self.dir_input):
 
             yield [os.path.join(self.dir_input, one_file)]
 
     def prepare(self, list_path_input):
+        """Retrieve input files and copy them to temporary directory"""
 
+        # Prepare temporary directories
         self.dir_tmp_run = tempfile.mkdtemp(
             dir=self.dir_tmp_root, prefix="automaton_")
 
         self.dir_tmp_in = os.path.join(self.dir_tmp_run, "in")
         self.dir_tmp_out = os.path.join(self.dir_tmp_run, "out")
 
+        self.logger.debug("Creating directory %s" % self.dir_tmp_in)
         os.makedirs(self.dir_tmp_in)
+
+        self.logger.debug("Creating directory %s" % self.dir_tmp_out)
         os.makedirs(self.dir_tmp_out)
 
+        # Move input files to temporary directory
         list_path_prepared = []
 
         for path_input in list_path_input:
 
             path_tmp_in = os.path.join(
                 self.dir_tmp_in, os.path.basename(path_input))
+
+            self.logger.debug("Moving %s to %s" % (path_input, path_tmp_in))
             shutil.move(path_input, path_tmp_in, shutil.copyfile)
 
             list_path_prepared.append(path_tmp_in)
@@ -80,21 +89,29 @@ class FileAutomaton(object):
         return list_path_prepared
 
     def finalize(self, success, list_path_input, list_path_output):
+        """Move files to their final destination"""
 
         if success is True:
-            dir_destination = self.dir_archive
+            dir_destination = self.dir_invalid
         elif success is False:
-            dir_destination = self.dir_error
+            dir_destination = self.dir_valid
         else:
             raise RuntimeError("Bad return value: %s" % success)
 
+        self.logger.info("Processing returned %s" % success)
+        self.logger.info("Input files will be moved to %s" % dir_destination)
+
         for one_path in list_path_output:
+            self.logger.info("Moving %s to %s" % (one_path, self.dir_output))
             shutil.move(one_path, self.dir_output, shutil.copyfile)
 
         for one_path in list_path_input:
+            self.logger.info("Moving %s to %s" % (one_path, dir_destination))
             shutil.move(one_path, dir_destination, shutil.copyfile)
 
         if success is True:
+            self.logger.debug(
+                "Removing temporary directory %s" % self.dir_tmp_run)
             shutil.rmtree(self.dir_tmp_run)
 
     def run(self):
@@ -108,48 +125,23 @@ class FileAutomaton(object):
                 "Prepared input: %s" % ", ".join(list_path_prepared))
 
             try:
-                success, list_path_output = self.fct(
-                    list_path_prepared, self.dir_tmp_out)
+                success, list_path_output = self.process(
+                    list_path_prepared)
             except:
                 success = False
+                list_path_output = []
                 self.logger.error(traceback.format_exc())
+
+            if success is True:
+                self.logger.info("Processing succeeded")
+                self.logger.info("Ouput: %s" % ", ".join(list_path_output))
+            else:
+                self.logger.info("Processing failed")
 
             self.finalize(success, list_path_prepared, list_path_output)
 
+    @abc.abstractmethod
+    def process(self, list_path_prepared):
+        """Main processing. Must be overwritten"""
 
-def process_ok(list_path_prepared, dir_output):
-
-    filename = os.path.basename(
-        list_path_prepared[0])
-
-    output_path = os.path.join(dir_output, filename + ".out")
-    fd = open(output_path, "w")
-    fd.write("Hello World !")
-    fd.close()
-
-    return True, [output_path]
-
-
-def process_err(list_path_prepared, dir_output):
-
-    return False, []
-
-
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--log", "-l", help="Log file")
-    parser.add_argument(
-        "--err", "-e", action="store_true", help="Tests error case")
-    args = parser.parse_args()
-
-    if args.log is not None:
-        logging.basicConfig(filename=args.log, level=logging.DEBUG)
-
-    if args.err is True:
-        fct = process_err
-    else:
-        fct = process_ok
-
-    fa = FileAutomaton(fct, "input", "output", "error", "archive")
-    fa.run()
+        return True, []
