@@ -26,8 +26,8 @@ class FileAutomaton(object, metaclass=abc.ABCMeta):
 
         self.logger.info("Input directory: %s" % self.dir_input)
         self.logger.info("Output directory: %s" % self.dir_output)
-        self.logger.info("Invalid files directory: %s" % self.dir_valid)
-        self.logger.info("Valid files directory: %s" % self.dir_invalid)
+        self.logger.info("Valid files directory: %s" % self.dir_valid)
+        self.logger.info("Invalid files directory: %s" % self.dir_invalid)
         self.logger.info("Temporary directory: %s" % self.dir_tmp_root)
 
         if not os.path.exists(self.dir_input):
@@ -64,14 +64,14 @@ class FileAutomaton(object, metaclass=abc.ABCMeta):
         self.dir_tmp_run = tempfile.mkdtemp(
             dir=self.dir_tmp_root, prefix="automaton_")
 
-        self.dir_tmp_in = os.path.join(self.dir_tmp_run, "in")
-        self.dir_tmp_out = os.path.join(self.dir_tmp_run, "out")
+        self.dir_tmp_run_in = os.path.join(self.dir_tmp_run, "in")
+        self.dir_tmp_run_out = os.path.join(self.dir_tmp_run, "out")
 
-        self.logger.debug("Creating directory %s" % self.dir_tmp_in)
-        os.makedirs(self.dir_tmp_in)
+        self.logger.debug("Creating directory %s" % self.dir_tmp_run_in)
+        os.makedirs(self.dir_tmp_run_in)
 
-        self.logger.debug("Creating directory %s" % self.dir_tmp_out)
-        os.makedirs(self.dir_tmp_out)
+        self.logger.debug("Creating directory %s" % self.dir_tmp_run_out)
+        os.makedirs(self.dir_tmp_run_out)
 
         # Move input files to temporary directory
         list_path_prepared = []
@@ -79,7 +79,7 @@ class FileAutomaton(object, metaclass=abc.ABCMeta):
         for path_input in list_path_input:
 
             path_tmp_in = os.path.join(
-                self.dir_tmp_in, os.path.basename(path_input))
+                self.dir_tmp_run_in, os.path.basename(path_input))
 
             self.logger.debug("Moving %s to %s" % (path_input, path_tmp_in))
             shutil.move(path_input, path_tmp_in, shutil.copyfile)
@@ -92,9 +92,9 @@ class FileAutomaton(object, metaclass=abc.ABCMeta):
         """Move files to their final destination"""
 
         if success is True:
-            dir_destination = self.dir_invalid
-        elif success is False:
             dir_destination = self.dir_valid
+        elif success is False:
+            dir_destination = self.dir_invalid
         else:
             raise RuntimeError("Bad return value: %s" % success)
 
